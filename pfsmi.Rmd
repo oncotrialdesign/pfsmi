@@ -1,0 +1,82 @@
+---
+title: "Using pfsmi for BICR PFS Multiple Imputation"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Using pfsmi for BICR PFS Multiple Imputation}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## Overview
+
+This vignette illustrates an end-to-end analysis of PFS assessed by BICR when local investigator PD can stop subsequent central review assessments and therefore may induce informative censoring in the BICR analysis.
+
+```{r setup}
+library(pfsmi)
+```
+
+## Simulate a hypothetical BICR trial
+
+```{r simulate}
+set.seed(2026)
+dat <- simulate_bicr_data(
+  n_per_arm = 100,
+  med_inv = c(trt = 28, ctl = 19),
+  med_bicr = c(trt = 30, ctl = 23),
+  rho = 0.8,
+  cutoff = 100,
+  visit_interval = 6,
+  disagreement = c(trt = 0.6, ctl = 0.3),
+  stay = c(trt = 0.3, ctl = 0.3)
+)
+head(dat)
+```
+
+## Primary BICR analysis
+
+```{r primary}
+primary <- fit_pfs(dat)
+primary$cox
+primary$median
+```
+
+## Identify potentially informative censoring
+
+```{r identify}
+inf <- identify_informative(dat, visit_interval = 6)
+table(Informative = inf, Arm = dat$trt)
+```
+
+## Run BICR multiple imputation
+
+```{r mi}
+mi <- mi_bicr(dat, m = 10, visit_interval = 6, seed = 99)
+mi$cox
+mi$median
+```
+
+In production analyses, use a larger number of imputations, inspect donor set sizes, and pre-specify any matching tolerances.
+
+## Next-visit sensitivity analysis
+
+```{r sensitivity}
+sens <- sensitivity_next_visit(dat, visit_interval = 6)
+sens_fit <- fit_pfs(sens, time = "pfs_sensitivity", event = "event_sensitivity")
+sens_fit$cox
+```
+
+## IPCW comparator
+
+```{r ipcw}
+ipcw <- ipcw_cox(dat, censor_covariates = "trt")
+summary(ipcw$fit)
+summary(ipcw$weights)
+```
+
+## Interpretation
+
+The primary analysis estimates the treatment effect under the usual non-informative censoring assumption. The next-visit sensitivity analysis represents a conservative local-PD-as-near-event assumption. The multiple imputation analysis uses arm-specific donor risk sets and continued-scan information, when available, to recover plausible BICR event times for subjects who would otherwise be censored because of local-central discrepancies.
